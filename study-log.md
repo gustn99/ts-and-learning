@@ -368,7 +368,7 @@
 ## 학습 로그 #4
 
 **시간**: MM/DD HH:mm ~ HH:mm (약 X분)
-**학습 범위**: typescript-exercises #0
+**학습 범위**: typescript-exercises #10 bonus
 
 ### 1. 이번 타임의 학습 전략
 
@@ -398,6 +398,85 @@
     ```
 
 - 실제로 어떻게 학습했는지 디테일한 과정을 써보세요.
+
+```markdown
+## 목표
+
+- 왜: 어떻게 임의의 객체 타입을 추론할까?
+- 그래서: 타입을 모르는 객체에 대해 타입 안전성이 보장된 코드를 작성할 수 있다.
+
+## Loop 1 (22:39-22:59)
+
+- 문제 상황: 객체의 value별 제네릭 타입이 필요한데 해결방안을 모르겠다. 객체의 value로부터 타입을 가져오고, value에 있는 함수로부터 파라미터 타입을 가져와야 한다.
+
+    ```jsx
+    export function promisifyAll<T extends {}>(callbackBasedApi: T) {
+    	return Object.entries(callbackBasedApi).reduce((prev, [key, fn]) => {
+    		prev[key] = promisify(fn);
+    		return prev;
+    	}, {});
+    }
+    ```
+
+- 막힘 유형: 구조, 동작
+- 가설: value로부터 타입을 가져올 수 있으면, 다음 단계로 넘어갈 수 있다.
+- 실험 내용: 매핑된 타입을 사용해 안전한 타입을 구현한다.
+- 실험 결과:
+    - 규칙: 매핑된 타입을 사용하는 게 항상 객체 타입을 보장하지는 않는다.
+    - 예시: 아래에서 사용된 매핑된 타입은 그냥 T를 사용하는 것과 차이가 없고, 결론적으로 fn의 타입을 보장하지 않는다.
+
+        ```jsx
+        type CallbackBasedApi<T> = {
+        	[K in keyof T]: T[K]
+        }
+        
+        export function promisifyAll<T extends {}, K = keyof T>(callbackBasedApi: CallbackBasedApi<T>) {
+        	return Object.entries(callbackBasedApi).reduce((prev, [key, fn]) => {
+        		prev[key] = promisify(fn);
+        		return prev;
+        	}, {});
+        }
+        ```
+
+    - 다음 행동: 현재 코드에서 타입을 보장할 수 없는 원인을 파악하고 해결하기
+- 결론: 어떤 임의의 객체의 value 타입을 얻기 위해 매핑된 타입이 최선이 아닐 수 있다.
+
+## Loop 2 (23:09-23:35)
+
+- 문제 상황: key, fn의 타입이 T의 타입으로 좁혀지지 않는다.
+
+    ```jsx
+    export function promisifyAll<T extends {}>(callbackBasedApi: T) {
+    	return Object.entries(callbackBasedApi).reduce((prev, [key, fn]) => {
+    		prev[key] = promisify(fn);
+    		return prev;
+    	}, {});
+    }
+    ```
+
+- 막힘 유형: 구조, 동작
+- 가설: key, fn의 타입을 좁히기 위해 매핑된 타입 외 다른 방법을 사용할 수 있다.
+- 실험 내용: reduce 대신 for-in 구문을 사용한다.
+- 실험 결과:
+    - 규칙: key, fn의 타입이 T에 대한 타입으로 정의되지 않고, 매핑된 타입도 의미가 없었던 것은 reduce에서 타입을 넓혀버리기 때문이다.
+    - 예시: key-value 쌍을 보장할 수 있는 for-in 구문을 사용하면 함수의 타입이 `T[Extract<keyof T, string>]` 으로 추론된다.
+
+        ```jsx
+        export function promisifyAll<T extends {}>(callbackBasedApi: T) {
+        	const result = {} as T;
+        
+        	for (const key in callbackBasedApi) {
+        		result[key] = promisify(callbackBasedApi[key]);
+        	}
+        
+        	return result;
+        }
+        ```
+
+    - 다음 행동: 그러나 여전히 `T[Extract<keyof T, string>]` 타입을
+      `(callback: (response: ApiResponse<unknown>) => void) => void` 타입으로 연결하지 못하는 문제가 있다. 이 문제 원인을 찾고 해결한다.
+- 결론: reduce는 타입을 넓힌다. key-value 타입 유지가 필요하다면 for-in이 좋은 대안이 될 수 있다.
+```
 
 ### 2. 전략 평가
 
