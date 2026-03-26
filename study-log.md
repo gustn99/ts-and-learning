@@ -237,27 +237,131 @@
 
 ## 학습 로그 #3
 
-**시간**: MM/DD HH:mm ~ HH:mm (약 X분)
-**학습 범위**: typescript-exercises #0
+**시간**: 3/26 15:24 ~ 16:44 (약 80분)
+**학습 범위**: typescript-exercises #10
 
 ### 1. 이번 타임의 학습 전략
 
 - 이전에 바꾸기로 한 전략은 무엇이었고, 실행했는가?
+    - 막힘 유형을 판단하고 넘어가기로 했습니다. 이번 문제는 js 문법적인 이해가 부족했습니다.
 - 실제로 어떻게 학습했는지 디테일한 과정을 써보세요.
+
+> 이번에는 제네릭과 같은 타입스크립트 문법이 아니라 콜백 기반을 Promise로 변환하는 과정에서 필요한 js 문법 지식에서 어려움을 겪었습니다. 단순히 ts를 학습하고, 이 문제를 풀기 위한 학습을 하지 않는다는 저만의 이번 미션 목표에 따르면 오히려 좋은 상황이었던 것 같아요.
+>
+> 처음에 Promise의 동작 원리를 알아야겠다고 생각했는데, 그렇게 잡으니까 Promise 관련 문서를 읽기만 하고 갈피가 안 잡히는 느낌이었습니다. 당시까지 작성한 노션 내용을 기반으로 GPTs와 이야기했을 때, 범위 설정의 문제라는 피드백을 받고 'Promise 생성 시 resolve와 reject의 동작'으로 범주를 한 번 더 좁힐 수 있었습니다.
+>
+> 코드를 수정한 뒤에도 리팩터링을 하고 싶은 욕구를 느꼈는데요. 리팩터링을 위해 다른 라이브러리에서는 Promise를 어떻게 사용하고 있는지 확인해야겠다고 생각했습니다. axios 라이브러리의 내부 구조를 열어보면서 동작이 많이 달라 해석에 어려움을 느꼈는데, 이런 부분을 GPTs와 이야기하면서 다시 한 번 '리팩터링 욕구의 출처'에 대해 뾰족하게 고민하고, 그 문제를 어떻게 받아들일지 결정할 수 있었습니다.
+
+```markdown
+## 목표
+
+- 왜: 콜백 기반 응답을 Promise 기반으로 변경하려면?
+- 그래서: 라이브러리 없이 직접 Promise 객체를 사용해 response를 resolve할 수 있다.
+
+## Loop 1
+
+- 문제 상황:
+  `callback-based` 를 처음 접함 + 지금까지 axios 같은 라이브러리만 사용했지, 직접 Promise 객체를 활용한 경험이 거의 없음. → 타입 관점에서는 제네릭을 활용해야겠다는 생각이 드는데, 문법적으로 막히는 상황
+- 막힘 유형: /이해 안 됨 (문법)/ -> 구조 이해 안 됨
+- 가설: Promise 활용 방식을 알면 아래 같은 형태로 콜백 기반 함수를 받아 Promise를 반환하는 함수를 만들 수 있을 것이다. → resolve와 reject 함수를 어떻게 사용할지 알아야 한다.
+
+    ```jsx
+    export function promisify<T>(arg: (response: T) => void): Promise<T> {
+    	return new Promise((resolve, reject) => {});
+    }
+    ```
+
+- 실험 내용: resolve와 reject 함수의 사용법을 알고 각각 응답 data와 error를 인자로 넘겨 호출했다.
+- 실험 결과:
+    - 정상적으로 Promise 객체를 반환하는 함수를 반환하는 함수가 생성됐다.
+
+    ```jsx
+    export function promisify<T>(arg: (callback: (response: ApiResponse<T>) => void) => void): () => Promise<T> {
+    	return () => new Promise((resolve, reject) => {
+    		arg((response) => {
+    			if (response.status === 'success') {
+    				resolve(response.data);
+    			} else {
+    				reject(response.error);
+    			}
+    		});
+    	});
+    ```
+
+- 결론: Promise 생성자는 resolve, reject 함수를 지니는데, 각각 상태를 fullfilled/rejected 로 변경하며, Promise에 담을 데이터와 에러 메시지를 인자로 받는다.
+
+## Loop 2
+
+- 문제 상황: Promise를 반환하는 함수를 반환하는 형태가 너무 복잡하게 느껴진다.
+- 막힘 유형: /이해 안 됨 (문법)/ -> 설계 개선
+- 가설: 함수를 더 가독성 좋게 만들 방법이 있을 것이다.
+- 실험 내용: axios 등 라이브러리에서 어떻게 작성하는지 살펴본다.
+- 실험 결과: axios는 Promise 체인을 구현하는 등 복잡한 다른 기능들이 있지만, 이러나 저러나 Promise를 반환하는 것은 똑같다. 지금 내 함수가 복잡해 보이는 건 api 객체에서 함수를 정의하지 않았기 때문에 평상시 쓰던 동작과 다르기 때문
+
+    ```jsx
+        let promise;
+        let i = 0;
+        let len;
+    
+        if (!synchronousRequestInterceptors) {
+          const chain = [dispatchRequest.bind(this), undefined];
+          chain.unshift(...requestInterceptorChain);
+          chain.push(...responseInterceptorChain);
+          len = chain.length;
+    
+          promise = Promise.resolve(config);
+    
+          while (i < len) {
+            promise = promise.then(chain[i++], chain[i++]);
+          }
+    
+          return promise;
+        }
+    ```
+
+    ```jsx
+    export const api = {
+    	requestAdmins: promisify(oldApi.requestAdmins),
+    	requestUsers: promisify(oldApi.requestUsers),
+    	requestCurrentServerTime: promisify(oldApi.requestCurrentServerTime),
+    	requestCoffeeMachineQueueLength: promisify(oldApi.requestCoffeeMachineQueueLength),
+    };
+    ```
+
+- 결론: 현재 구조 상 불가피한 복잡성인 것 같다. 현재 상태를 유지한다.
+
+## 결과
+
+콜백 기반 응답을 Promise 기반으로 변경하려면?
+
+- Promise 콜백 안에서 resolve하면 상태가 fullfilled로 → resolve 인자로 넘긴 데이터의 Promise를 반환하게 한다.
+- Promise 콜백 안에서 reject하면 상태가 rejected로 → reject 인자로 넘긴 에러 메시지를 담은 Promise를 반환하게 한다.
+- 콜백 응답의 상태에 따라 resolve하거나 reject한다.
+
+⇒ 코드의 복잡도를 판단할 때, 낯선 문법 때문인지, 구조적인 계약 때문인지 분리하는 사고가 필요하다.
+```
 
 ### 2. 전략 평가
 
 - 효과적이었던 것과 그 이유
+    - AI 활용 방법(GPTs): AI에게 질문할 때에는 **핵심 개념을 힌트, 내가 잡은 핵심 개념 피드백, 내가 잡은 방향성 피드백,구체적인 문제 풀이 힌트
+      ** 같은 내용만 질문하자고 스스로 정하고 GPTs에게도 그 내용을 적용했었습니다. 다른 AI와 GPTs를 같이 사용해 봤는데, 무엇을 물어봐야 할지도 감을 못 잡을 때 다른 AI는 여전히 두리뭉실한 답변을 주는 반면, GPTs는 지금 문제가 '범위 설정'에 있다는 것을 명확하게 지적하고 새로운 범위를 제안해 주었습니다. 이 부분에서 많은 시간을 단축할 수 있었던 것 같아요.
 - 비효과적이었던 것과 그 이유
+    - 템플릿에 맞춰 학습하다 보니 "규칙 1줄 / 예시 1쌍 / 다음 행동 1개가 나오면 멈춘다" 같은 설명을 충분히 이행하지 못하고 있다는 생각이 들었습니다. 설계와 템플릿 간의 차이를 줄여보면 좋을 것 같습니다.
+    - 루프별 좁은 가설 설정으로 학습이 크게 다른 길로 새지 않고 원래 주제로 잘 돌아오고 있다는 느낌을 받았지만, '15-30분만 학습한다'는 조건을 의식적으로 적용하지는 못하고 있는 것 같습니다.
 
 ### 3. AI 피드백
 
-- 자신의 학습 전략에 대해 AI에게 피드백을 요청하고, 유용했던 제안 1가지 이상 기록
+- 한 가지 문제로부터 이어지는 내용일지라도 '목표'가 다르면 로그를 분리하라 (여기서는 Promise 구현 -> 리팩터링)
+- 템플릿 수정
 
 ### 4. 다음 타임에 바꿀 것
 
 - 유지할 것과 그 이유
+    - 전체 흐름은 두세 번의 반복 안에서도 문제를 해결하는 힘이 늘어났다고 체감될 만큼 괜찮다고 느껴집니다.
 - 바꿀 것과 그 이유
+    - 문제 인식 후 문제 유형을 판단하는 ai를 하나 붙일까 고민됩니다.
+    - 템플릿을 작성하는 건 '익숙하지 않은 지금, 의식적으로 템플릿을 작성하면서 나중에는 템플릿 없이도 해당 사고를 할 수 있도록'하기 위함이었습니다. 그런데 AI가 제안한 대로 템플릿을 수정하면, 한 번의 학습에서 기록에 들어가는 비용이 너무 크다는 문제가 있습니다. 현재 템플릿 사용으로 인한 효과를 체감하고 있으므로, 템플릿을 유지하고 초기 설계를 일부(규칙 1줄 / 예시 1쌍 / 다음 행동 1개 등) 수정해 볼 계획입니다.
 
 ---
 
