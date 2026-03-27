@@ -111,12 +111,22 @@ const oldApi = {
 	},
 };
 
-export const api = {
-	requestAdmins: promisify(oldApi.requestAdmins),
-	requestUsers: promisify(oldApi.requestUsers),
-	requestCurrentServerTime: promisify(oldApi.requestCurrentServerTime),
-	requestCoffeeMachineQueueLength: promisify(oldApi.requestCoffeeMachineQueueLength),
-};
+export const api = promisifyAll(oldApi);
+
+type Callback<T> = (callback: (response: ApiResponse<T>) => void) => void;
+type CallbackApi = Record<string, (callback: (response: ApiResponse<any>) => void) => void>;
+type ParameterType<T> = T extends Callback<infer R> ? R : never
+type Promisified<T, P = ParameterType<T[keyof T]>> = Record<string, () => Promise<P>>
+
+export function promisifyAll(callbackBasedApi: CallbackApi) {
+	const result = {} as Promisified<CallbackApi>;
+
+	for (const key in callbackBasedApi) {
+		result[key] = promisify(callbackBasedApi[key]);
+	}
+
+	return result;
+}
 
 function logPerson(person: Person) {
 	console.log(
