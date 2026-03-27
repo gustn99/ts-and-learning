@@ -424,6 +424,7 @@
 - 실험 결과:
     - 규칙: 매핑된 타입을 사용하는 게 항상 객체 타입을 보장하지는 않는다.
     - 예시: 아래에서 사용된 매핑된 타입은 그냥 T를 사용하는 것과 차이가 없고, 결론적으로 fn의 타입을 보장하지 않는다.
+      (단순 typeof T와 큰 차이가 없었을 것으로 보임.)
 
         ```jsx
         type CallbackBasedApi<T> = {
@@ -458,7 +459,7 @@
 - 가설: key, fn의 타입을 좁히기 위해 매핑된 타입 외 다른 방법을 사용할 수 있다.
 - 실험 내용: reduce 대신 for-in 구문을 사용한다.
 - 실험 결과:
-    - 규칙: key, fn의 타입이 T에 대한 타입으로 정의되지 않고, 매핑된 타입도 의미가 없었던 것은 reduce에서 타입을 넓혀버리기 때문이다.
+    - 규칙: key, fn의 타입이 T에 대한 타입으로 정의되지 않고, 앞선 루프에서 매핑된 타입이 의미가 없었던 것은 Object.entries에서 타입을 넓혀버리기 때문이다.
     - 예시: key-value 쌍을 보장할 수 있는 for-in 구문을 사용하면 함수의 타입이 `T[Extract<keyof T, string>]` 으로 추론된다.
 
         ```jsx
@@ -475,22 +476,61 @@
 
     - 다음 행동: 그러나 여전히 `T[Extract<keyof T, string>]` 타입을
       `(callback: (response: ApiResponse<unknown>) => void) => void` 타입으로 연결하지 못하는 문제가 있다. 이 문제 원인을 찾고 해결한다.
-- 결론: reduce는 타입을 넓힌다. key-value 타입 유지가 필요하다면 for-in이 좋은 대안이 될 수 있다.
+- 결론: Object.entries를 사용하면 타입을 잃는다. key-value 타입 유지가 필요하다면 for-in이 좋은 대안이 될 수 있다.
+
+## Loop 3 (09:21-09:56)
+
+- 문제 상황: `T[Extract<keyof T, string>]` 타입을
+  `(callback: (response: ApiResponse<unknown>) => void) => void` 타입으로 연결하지 못하는 문제가 있다.
+
+    ```jsx
+    export function promisifyAll<T extends {}>(callbackBasedApi: T) {
+    	const result = {} as T;
+    
+    	for (const key in callbackBasedApi) {
+    		result[key] = promisify(callbackBasedApi[key]);
+    	}
+    
+    	return result;
+    }
+    ```
+
+- 막힘 유형: 구조, 동작
+- 가설: T의 타입을 좁혀서
+  `T[Extract<keyof T, string>]` 타입이 더 구체적으로 추론될 수 있도록 한다. → T의 value에 함수가 있고, 그 함수의 파라미터 타입을 추론 가능하게 해야 한다.
+- 실험 내용: 파라미터 타입을 추론하는 유틸리티 타입을 만든다.
+- 실험 결과:
+    - 규칙: infer를 사용해 파라미터 타입을 추론할 수 있다.
+    - 예시:
+
+        ```jsx
+        type Callback<T> = (callback: (response: ApiResponse<T>) => void) => void;
+        type CallbackApi = Record<string, (callback: (response: ApiResponse<any>) => void) => void>;
+        type ParameterType<T> = T extends Callback<infer R> ? R : never
+        type Promisified<T, P = ParameterType<T[keyof T]>> = Record<string, () => Promise<P>>
+        
+        export function promisifyAll(callbackBasedApi: CallbackApi) {
+        	const result = {} as Promisified<CallbackApi>;
+        
+        	for (const key in callbackBasedApi) {
+        		result[key] = promisify(callbackBasedApi[key]);
+        	}
+        
+        	return result;
+        }
+        ```
+
+    - 다음 행동: Callback 및 CallbackApi 타입을 작성하는 방식이 좋은 방식일까? 기존 모든 함수에 타입을 적용, 작성해야 하는 불편한 비용 vs typeof oldApi 같이 객체에 의존하는 타입 형태… → callback 객체 타입을 만들지 않는 버전으로 코드를 다시 작성해 보고 비교한다.
+- 결론: -
+
+## 결과
+
+어떻게 임의의 객체 타입을 추론할까?
+
+- infer를 사용해 함수의 파라미터 타입을 추론할 수 있다.
+- 객체 타입을 선언할 때 key별로 다른 value 타입을 유지하려면 mapped 타입을 사용해야 한다.
+- Record는 key-value 쌍을 보장하지 못하기 때문에 key마다 value의 타입이 다른 경우 좋은 선택이 아닐 수 있다.
 ```
-
-### 2. 전략 평가
-
-- 효과적이었던 것과 그 이유
-- 비효과적이었던 것과 그 이유
-
-### 3. AI 피드백
-
-- 자신의 학습 전략에 대해 AI에게 피드백을 요청하고, 유용했던 제안 1가지 이상 기록
-
-### 4. 다음 타임에 바꿀 것
-
-- 유지할 것과 그 이유
-- 바꿀 것과 그 이유
 
 ---
 
