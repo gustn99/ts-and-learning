@@ -51,6 +51,18 @@ interface Admin {
 
 type Person = User | Admin;
 
+// type Callback<T> = (callback: (response: ApiResponse<T>) => void) => void;
+// type CallbackApi = Record<string, (callback: (response: ApiResponse<any>) => void) => void>;
+// type ParameterType<T> = T extends Callback<infer R> ? R : never
+// type Promisified<T, P = ParameterType<T[keyof T]>> = Record<string, () => Promise<P>>
+
+type Callback<T> = (callback: (response: ApiResponse<T>) => void) => void;
+type CallbackApi = Record<string, Callback<any>>;
+type ParameterType<T> = T extends Callback<infer R> ? R : never;
+type Promisified<T> = {
+	[K in keyof T]: () => Promise<ParameterType<T[K]>>
+};
+
 const admins: Admin[] = [
 	{type: 'admin', name: 'Jane Doe', age: 32, role: 'Administrator'},
 	{type: 'admin', name: 'Bruce Willis', age: 64, role: 'World saver'},
@@ -72,7 +84,7 @@ export type ApiResponse<T> = (
 	}
 	);
 
-export function promisify<T>(arg: (callback: (response: ApiResponse<T>) => void) => void): () => Promise<T> {
+export function promisify<T>(arg: Callback<T>): () => Promise<T> {
 	return () => new Promise((resolve, reject) => {
 		arg((response) => {
 			if (response.status === 'success') {
@@ -112,11 +124,6 @@ const oldApi = {
 };
 
 export const api = promisifyAll(oldApi);
-
-type Callback<T> = (callback: (response: ApiResponse<T>) => void) => void;
-type CallbackApi = Record<string, (callback: (response: ApiResponse<any>) => void) => void>;
-type ParameterType<T> = T extends Callback<infer R> ? R : never
-type Promisified<T, P = ParameterType<T[keyof T]>> = Record<string, () => Promise<P>>
 
 export function promisifyAll(callbackBasedApi: CallbackApi) {
 	const result = {} as Promisified<CallbackApi>;
